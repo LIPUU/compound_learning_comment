@@ -386,7 +386,9 @@ abstract contract CToken is CTokenInterface, ExponentialNoError, TokenErrorRepor
     function mintInternal(uint mintAmount) internal nonReentrant {
         accrueInterest();
         // mintFresh emits the actual Mint event if successful and logs on errors, so we don't need to
-        mintFresh(msg.sender, mintAmount);
+        mintFresh(msg.sender, mintAmount); 
+        // 在delegator眼里，cToken的合约是单个的single合约，即使实现上被分成了CErc20，CToken和CErc20Delegate三个文件
+        // 又由于delegatecall的原因，这里的msg.sender其实是对delegator发起调用的那个账户。
     }
 
     /**
@@ -398,6 +400,8 @@ abstract contract CToken is CTokenInterface, ExponentialNoError, TokenErrorRepor
     function mintFresh(address minter, uint mintAmount) internal {
         /* Fail if mint not allowed */
         uint allowed = comptroller.mintAllowed(address(this), minter, mintAmount);
+        // 由于delegatecall的原因，address(this)其实是CErc20Delegator的地址
+
         if (allowed != 0) {
             revert MintComptrollerRejection(allowed);
         }

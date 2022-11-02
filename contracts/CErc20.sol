@@ -26,7 +26,11 @@ contract CErc20 is CToken, CErc20Interface {
     function initialize(address underlying_,
                         ComptrollerInterface comptroller_,
                         InterestRateModel interestRateModel_,
-                        uint initialExchangeRateMantissa_,
+                        // InterestRateModel是个父合约，只提供了接口，各个不同的资产需要自己选择不同的利率模型
+                        // ETH选择了WhitePaperInterestRateModel.sol，
+                        // USDC选择了JumpRateModelV2.sol
+
+                        uint initialExchangeRateMantissa_,// 
                         string memory name_,
                         string memory symbol_,
                         uint8 decimals_) public {

@@ -123,16 +123,25 @@ abstract contract BaseJumpRateModelV2 is InterestRateModel {
     /**
      * @notice Internal function to update the parameters of the interest rate model
      * @param baseRatePerYear The approximate target base APR, as a mantissa (scaled by BASE)
-     * @param multiplierPerYear The rate of increase in interest rate wrt utilization (scaled by BASE)
-     * @param jumpMultiplierPerYear The multiplierPerBlock after hitting a specified utilization point
+     * @param multiplierPerYear The rate of increase in interest rate wrt utilization (scaled by BASE) 
+     * @param jumpMultiplierPerYear The multiplierPerBlock after hitting a specified utilization point 此处应有(scaled by BASE) 
      * @param kink_ The utilization point at which the jump multiplier is applied
      */
     function updateJumpRateModelInternal(uint baseRatePerYear, uint multiplierPerYear, uint jumpMultiplierPerYear, uint kink_) internal {
         baseRatePerBlock = baseRatePerYear / blocksPerYear;
         multiplierPerBlock = (multiplierPerYear * BASE) / (blocksPerYear * kink_);
+        // 在拐点之前，由于分母里乘了kink，以及对分子multiplierPerYear值的控制，斜率multiplierPerBlock较小
+        // kink就是那个特定的资金利用率拐点，过了拐点之后将使用不同的斜率jumpMultiplierPerBlock
+
         jumpMultiplierPerBlock = jumpMultiplierPerYear / blocksPerYear;
+        // 过了特定拐点之后的斜率
+
         kink = kink_;
 
         emit NewInterestParams(baseRatePerBlock, multiplierPerBlock, jumpMultiplierPerBlock, kink);
     }
+    // 以multiplierPerYear为例，该参数传进来的时候就已经乘了BASE，原因是为了把精度拓展到标准的1e18
+    // 然后，multiplierPerBlock = (multiplierPerYear * BASE) / (blocksPerYear * kink_); 这行
+    // 又乘了一个BASE，是为了保证后面除以(blocksPerYear * kink_)的时候不会被rounding
+    // 总之等于多乘了一个BASE。因此getBorrowRateInternal方法在计算借款利率的时候，将多乘的BASE给除去了
 }
