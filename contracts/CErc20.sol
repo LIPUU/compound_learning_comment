@@ -168,6 +168,11 @@ contract CErc20 is CToken, CErc20Interface {
         EIP20NonStandardInterface token = EIP20NonStandardInterface(underlying_);
         uint balanceBefore = EIP20Interface(underlying_).balanceOf(address(this));
         token.transferFrom(from, address(this), amount);
+        // 对于代币在transferFrom失败的情况下如何处理，erc20标准并没有严格定义
+        // 有些代币可能会直接revert，这种是最干脆直接的，doTransferIn会直接失败，导致compound的整个mint调用都失败，干脆利落
+        // 但有些代币可能会返回false。也就是说有些代币的transferFrom没有返回值，而另外一些代币的transferFrom返回一个bool，两种都符合标准
+        // 第一种代币记为A，第二种代币记为B
+        // uniswap的call的方式能够处理A和B两种代币。先看第一种处理方式
 
         bool success;
         assembly {
@@ -184,6 +189,8 @@ contract CErc20 is CToken, CErc20Interface {
                 }
         }
         require(success, "TOKEN_TRANSFER_IN_FAILED");
+
+        // 其实这块的处理和uniswapv2完全一致，只不过v2直接用call，两个返回值能直接接到，而这里用的是标准调用，
 
         // Calculate the amount that was *actually* transferred
         uint balanceAfter = EIP20Interface(underlying_).balanceOf(address(this));

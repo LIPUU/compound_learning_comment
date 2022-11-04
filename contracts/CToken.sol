@@ -328,16 +328,22 @@ abstract contract CToken is CTokenInterface, ExponentialNoError, TokenErrorRepor
         /* Remember the initial block number */
         uint currentBlockNumber = getBlockNumber();
         uint accrualBlockNumberPrior = accrualBlockNumber;
+        // 三个角色有很多操作都会修改accrualBlockNumber值
+        // 每修改一次就意味着更新了利息
 
         /* Short-circuit accumulating 0 interest */
-        if (accrualBlockNumberPrior == currentBlockNumber) {
+        if (accrualBlockNumberPrior == currentBlockNumber) { // 如果是同区块，就不累加应计利息
             return NO_ERROR;
         }
 
         /* Read the previous values out of storage */
-        uint cashPrior = getCashPrior();
-        uint borrowsPrior = totalBorrows;
+        uint cashPrior = getCashPrior(); // 本cToken (即本marker，本池子) 当前拥有多少 underlying asset
+        uint borrowsPrior = totalBorrows; 
+        // 在本次借贷前的总借贷数量。如果是新市场首次mint，这个值初始为0
+
         uint reservesPrior = totalReserves;
+        // 储备金
+
         uint borrowIndexPrior = borrowIndex;
 
         /* Calculate the current borrow interest rate */
@@ -346,14 +352,25 @@ abstract contract CToken is CTokenInterface, ExponentialNoError, TokenErrorRepor
 
         /* Calculate the number of blocks elapsed since the last accrual */
         uint blockDelta = currentBlockNumber - accrualBlockNumberPrior;
+        // 利息是逐区块产生的，也就是说，compound里的利率是区块利率，blockDelta是本区块和上次记录的区块之间的区块个数
+        // 既然是区块利率，那么每个区块的利率都会由于上个被记录的区块内的协议的活动导致资金利用率(以及其他相关因素)被改变
+        // 从而导致区块利率被改变
+        // 一般情况下，blockDelta是1，因为用户和协议的交互很频繁，基本上每个区块里都有和compound的交互
+        // 如果中间确实协议没进行活动，ok，利率就不更新了，这中间的区块全部按照上之前最后一次记录的利率计算
+        // 这也是为什么下面有个公式：simpleInterestFactor = borrowRate * blockDelta
+        // 在绝大多数blockDelta为1的情况下，simpleInterestFactor就是当前区块新计算出来的借贷利率borrowRateMantissa
 
         /*
          * Calculate the interest accumulated into borrows and reserves and the new index:
-         *  simpleInterestFactor = borrowRate * blockDelta
-         *  interestAccumulated = simpleInterestFactor * totalBorrows
-         *  totalBorrowsNew = interestAccumulated + totalBorrows
-         *  totalReservesNew = interestAccumulated * reserveFactor + totalReserves
+         *  simpleInterestFactor = borrowRate * blockDelta // 把间隔的区块引入到计算过程中。一般情况下blockDelta是1
+         *  interestAccumulated = simpleInterestFactor * totalBorrows // 在区块区间内产生的借贷利息
+         *  假设blockDelta=2，则借贷利息就是 2*borrowRate*totalBorrows = borrowRate*totalBorrows + borrowRate*totalBorrows
+         *  仍然是每区块内都累计了借贷利息
+         * 
+         *  totalBorrowsNew = interestAccumulated + totalBorrows // 借贷本金+借贷产生的利息，借款总额 还钱的时候要按这个数字还钱
+         *  totalReservesNew = interestAccumulated * reserveFactor + totalReserves // 储备金按照储备金因子从利息里出
          *  borrowIndexNew = simpleInterestFactor * borrowIndex + borrowIndex
+         * 
          */
 
         Exp memory simpleInterestFactor = mul_(Exp({mantissa: borrowRateMantissa}), blockDelta);
@@ -388,7 +405,7 @@ abstract contract CToken is CTokenInterface, ExponentialNoError, TokenErrorRepor
         // mintFresh emits the actual Mint event if successful and logs on errors, so we don't need to
         mintFresh(msg.sender, mintAmount); 
         // 在delegator眼里，cToken的合约是单个的single合约，即使实现上被分成了CErc20，CToken和CErc20Delegate三个文件
-        // 又由于delegatecall的原因，这里的msg.sender其实是对delegator发起调用的那个账户。
+        // 又由于delegatecall的原因，这里的msg.sender其实是对delegator发起调用的用户账户
     }
 
     /**
@@ -401,6 +418,7 @@ abstract contract CToken is CTokenInterface, ExponentialNoError, TokenErrorRepor
         /* Fail if mint not allowed */
         uint allowed = comptroller.mintAllowed(address(this), minter, mintAmount);
         // 由于delegatecall的原因，address(this)其实是CErc20Delegator的地址
+        // 在comptroller里对此进行检查，能够保证用户的调用确实是通过delegator进行交互的而不是自己私自和cToken合约CErc20Delegate进行交互
 
         if (allowed != 0) {
             revert MintComptrollerRejection(allowed);
@@ -410,8 +428,11 @@ abstract contract CToken is CTokenInterface, ExponentialNoError, TokenErrorRepor
         if (accrualBlockNumber != getBlockNumber()) {
             revert MintFreshnessCheck();
         }
+        // 在mint里，更新利息的时候，accrualBlockNumber被更新过
+        // 现在再次进行检查，保证确实是更新完利息之后马上调用了mintFresh
 
         Exp memory exchangeRate = Exp({mantissa: exchangeRateStoredInternal()});
+        // 做这个计算的时候，cToken的totalSupply还没有被更新
 
         /////////////////////////
         // EFFECTS & INTERACTIONS
@@ -426,6 +447,8 @@ abstract contract CToken is CTokenInterface, ExponentialNoError, TokenErrorRepor
          *  of cash.
          */
         uint actualMintAmount = doTransferIn(minter, mintAmount);
+        //   能够有效处理不标准代币，比如转账带税等
+        // doTransferIn里已经才更新cToken的totalSupply
 
         /*
          * We get the current exchange rate and calculate the number of cTokens to be minted:
