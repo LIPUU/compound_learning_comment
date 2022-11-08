@@ -186,7 +186,7 @@ abstract contract CToken is CTokenInterface, ExponentialNoError, TokenErrorRepor
     function getAccountSnapshot(address account) override external view returns (uint, uint, uint, uint) {
         return (
             NO_ERROR,
-            accountTokens[account],
+            accountTokens[account], // balanceOf也是这个通过accountTokens里面记录的数字实现的
             borrowBalanceStoredInternal(account),
             exchangeRateStoredInternal()
         );
@@ -246,6 +246,7 @@ abstract contract CToken is CTokenInterface, ExponentialNoError, TokenErrorRepor
 
     /**
      * @notice Return the borrow balance of account based on stored data
+     * 这个数字的具体含义就是，截至到上次借款时的欠款总数 + 到本次借款时中间产生的利息 = 总共借走的钱
      * @param account The address whose balance should be calculated
      * @return (error code, the calculated balance or 0 if error code is non-zero)
      */
@@ -263,8 +264,14 @@ abstract contract CToken is CTokenInterface, ExponentialNoError, TokenErrorRepor
         /* Calculate new borrow balance using the interest index:
          *  recentBorrowBalance = borrower.borrowBalance * market.borrowIndex / borrower.borrowIndex
          */
-        uint principalTimesIndex = borrowSnapshot.principal * borrowIndex;
+        // borrowSnapshot.principal记录的是截止到上次借款(包含上次借款)，本账户总共借走的钱数
+        uint principalTimesIndex = borrowSnapshot.principal * borrowIndex; // borrowIndex里引入了time
         return principalTimesIndex / borrowSnapshot.interestIndex;
+        // borrowIndex借贷指数会随着各个参与角色对资金的操作而不停变动，每次读这个值的时候都是最新的、当前的borrowIndex
+        // 而borrowSnapshot.interestIndex是记录在用户下面的数据
+        // borrowSnapshot.interestIndex这个值是该用户上次做借贷操作时，当时的borrowIndex。
+        // 在borrowFresh()里可以看到进行借贷操作时对borrowIndex的记录
+
     }
 
     /**
@@ -324,6 +331,7 @@ abstract contract CToken is CTokenInterface, ExponentialNoError, TokenErrorRepor
      * @dev This calculates interest accrued from the last checkpointed block
      *   up to the current block and writes new checkpoint to storage.
      */
+    // 这个东西最大的作用就是更新利率指数，把上个区块里的所有与协议进行的交易造成的影响映射到利率指数中去。
     function accrueInterest() virtual override public returns (uint) {
         /* Remember the initial block number */
         uint currentBlockNumber = getBlockNumber();
@@ -338,6 +346,9 @@ abstract contract CToken is CTokenInterface, ExponentialNoError, TokenErrorRepor
 
         /* Read the previous values out of storage */
         uint cashPrior = getCashPrior(); // 本cToken (即本marker，本池子) 当前拥有多少 underlying asset
+        // 为什么带prior，是因为接下来期待用户向合约里存underlying asset了
+        // 下面变量里的prior也是同样的道理
+
         uint borrowsPrior = totalBorrows; 
         // 在本次借贷前的总借贷数量。如果是新市场首次mint，这个值初始为0
 
@@ -364,11 +375,11 @@ abstract contract CToken is CTokenInterface, ExponentialNoError, TokenErrorRepor
          * Calculate the interest accumulated into borrows and reserves and the new index:
          *  simpleInterestFactor = borrowRate * blockDelta // 把间隔的区块引入到计算过程中。一般情况下blockDelta是1
          *  interestAccumulated = simpleInterestFactor * totalBorrows // 在区块区间内产生的借贷利息
-         *  假设blockDelta=2，则借贷利息就是 2*borrowRate*totalBorrows = borrowRate*totalBorrows + borrowRate*totalBorrows
-         *  仍然是每区块内都累计了借贷利息
+         *  假设blockDelta=2，则interestAccumulated借贷利息就是 2*borrowRate*totalBorrows = borrowRate*totalBorrows + borrowRate*totalBorrows
+         *  仍然是每区块内都产生了借贷利息
          * 
          *  totalBorrowsNew = interestAccumulated + totalBorrows // 借贷本金+借贷产生的利息，借款总额 还钱的时候要按这个数字还钱
-         *  totalReservesNew = interestAccumulated * reserveFactor + totalReserves // 储备金按照储备金因子从利息里出
+         *  totalReservesNew = interestAccumulated * reserveFactor + totalReserves // 储备金按照储备金因子从应计利息里出
          *  borrowIndexNew = simpleInterestFactor * borrowIndex + borrowIndex
          * 
          */
@@ -433,6 +444,7 @@ abstract contract CToken is CTokenInterface, ExponentialNoError, TokenErrorRepor
 
         Exp memory exchangeRate = Exp({mantissa: exchangeRateStoredInternal()});
         // 做这个计算的时候，cToken的totalSupply还没有被更新
+        // stored的意思是，用户的存款操作影响不了兑换率的计算，用来计算兑换率的数据是存款之前store的
 
         /////////////////////////
         // EFFECTS & INTERACTIONS
@@ -504,6 +516,8 @@ abstract contract CToken is CTokenInterface, ExponentialNoError, TokenErrorRepor
      * @param redeemTokensIn The number of cTokens to redeem into underlying (only one of redeemTokensIn or redeemAmountIn may be non-zero)
      * @param redeemAmountIn The number of underlying tokens to receive from redeeming cTokens (only one of redeemTokensIn or redeemAmountIn may be non-zero)
      */
+    // redeemTokensIn变量名的意思就是，用户进行赎回操作时，以cToken数量计价。如果一切合法，用户会被扣除redeemTokensIn数量的cToken，收到underlying token
+    // redeemAmountIn的意思就是，用户进行赎回操作时，提供一个希望换回的underlying token的数量redeemAmountIn，如果一切合法，用户会被扣除相应数量的cToken,收到期望的underlying token. 只要带Amount就是底层资产的数量。带token就是cToken
     function redeemFresh(address payable redeemer, uint redeemTokensIn, uint redeemAmountIn) internal {
         require(redeemTokensIn == 0 || redeemAmountIn == 0, "one of redeemTokensIn or redeemAmountIn must be zero");
 
@@ -521,15 +535,16 @@ abstract contract CToken is CTokenInterface, ExponentialNoError, TokenErrorRepor
              */
             redeemTokens = redeemTokensIn;
             redeemAmount = mul_ScalarTruncate(exchangeRate, redeemTokensIn);
-        } else {
+        } else { // 如果走到这个分支，说明用户给定了期望换回的标的资产的数量redeemAmountIn
             /*
              * We get the current exchange rate and calculate the amount to be redeemed:
              *  redeemTokens = redeemAmountIn / exchangeRate
              *  redeemAmount = redeemAmountIn
              */
-            redeemTokens = div_(redeemAmountIn, exchangeRate);
+            redeemTokens = div_(redeemAmountIn, exchangeRate); // 想要换回数量为redeemAmountIn，所需要的cToken的数量
             redeemAmount = redeemAmountIn;
         }
+        // 上述关系虽然很乱，但最关键的一点在于cToken的数量是否对得上
 
         /* Fail if redeem not allowed */
         uint allowed = comptroller.redeemAllowed(address(this), redeemer, redeemTokens);
@@ -556,8 +571,9 @@ abstract contract CToken is CTokenInterface, ExponentialNoError, TokenErrorRepor
          * We write the previously calculated values into storage.
          *  Note: Avoid token reentrancy attacks by writing reduced supply before external transfer.
          */
-        totalSupply = totalSupply - redeemTokens;
+        totalSupply = totalSupply - redeemTokens; // burn掉cToken
         accountTokens[redeemer] = accountTokens[redeemer] - redeemTokens;
+        // 如果用户拥有的cToken数量不够它宣称要提走的redeemTokens，这里会直接revert掉
 
         /*
          * We invoke doTransferOut for the redeemer and the redeemAmount.
@@ -592,6 +608,8 @@ abstract contract CToken is CTokenInterface, ExponentialNoError, TokenErrorRepor
     function borrowFresh(address payable borrower, uint borrowAmount) internal {
         /* Fail if borrow not allowed */
         uint allowed = comptroller.borrowAllowed(address(this), borrower, borrowAmount);
+        // address(this) 是 CErc20Deleatetor.sol
+
         if (allowed != 0) {
             revert BorrowComptrollerRejection(allowed);
         }
@@ -665,7 +683,7 @@ abstract contract CToken is CTokenInterface, ExponentialNoError, TokenErrorRepor
      * @param payer the account paying off the borrow
      * @param borrower the account with the debt being payed off
      * @param repayAmount the amount of underlying tokens being returned, or -1 for the full outstanding amount
-     * @return (uint) the actual repayment amount.
+     * @retursn (uint) the actual repayment amount.
      */
     function repayBorrowFresh(address payer, address borrower, uint repayAmount) internal returns (uint) {
         /* Fail if repayBorrow not allowed */

@@ -155,8 +155,8 @@ contract Comptroller is ComptrollerV7Storage, ComptrollerInterface, ComptrollerE
         //  this avoids having to iterate through the list for the most common use cases
         //  that is, only when we need to perform liquidity checks
         //  and not whenever we want to check if an account is in a particular market
-        marketToJoin.accountMembership[borrower] = true;
-        accountAssets[borrower].push(cToken);
+        marketToJoin.accountMembership[borrower] = true; // 在市场地址下记录已经进入其中的用户
+        accountAssets[borrower].push(cToken); // 在用户地址下记录其已经进入的市场
 
         emit MarketEntered(cToken, borrower);
 
@@ -325,7 +325,7 @@ contract Comptroller is ComptrollerV7Storage, ComptrollerInterface, ComptrollerE
         redeemer;
 
         // Require tokens is zero or amount is also zero
-        if (redeemTokens == 0 && redeemAmount > 0) {
+        if (redeemTokens == 0 && redeemAmount > 0) { // 最后再检查下防止没有提供cToken而换走redeemAmount数量的underlying Token
             revert("redeemTokens zero");
         }
     }
@@ -345,12 +345,12 @@ contract Comptroller is ComptrollerV7Storage, ComptrollerInterface, ComptrollerE
             return uint(Error.MARKET_NOT_LISTED);
         }
 
-        if (!markets[cToken].accountMembership[borrower]) {
+        if (!markets[cToken].accountMembership[borrower]) { // 如果用户目前没有被列在市场里
             // only cTokens may call borrowAllowed if borrower not in market
             require(msg.sender == cToken, "sender must be cToken");
 
             // attempt to add borrower to the market
-            Error err = addToMarketInternal(CToken(msg.sender), borrower);
+            Error err = addToMarketInternal(CToken(msg.sender), borrower); // 就将其记录到市场里
             if (err != Error.NO_ERROR) {
                 return uint(err);
             }
@@ -365,7 +365,7 @@ contract Comptroller is ComptrollerV7Storage, ComptrollerInterface, ComptrollerE
 
 
         uint borrowCap = borrowCaps[cToken];
-        // Borrow cap of 0 corresponds to unlimited borrowing
+        // Borrow cap of 0 corresponds to unlimited borrowing。不为0说明该市场被admin人为限制了借贷额度，通过_setMarketBorrowCaps方法
         if (borrowCap != 0) {
             uint totalBorrows = CToken(cToken).totalBorrows();
             uint nextTotalBorrows = add_(totalBorrows, borrowAmount);
@@ -710,8 +710,9 @@ contract Comptroller is ComptrollerV7Storage, ComptrollerInterface, ComptrollerE
 
     /**
      * @notice Determine what the account liquidity would be if the given amounts were redeemed/borrowed
-     * @param cTokenModify The market to hypothetically redeem/borrow in
      * @param account The account to determine liquidity for
+     * @param cTokenModify The market to hypothetically redeem/borrow in
+
      * @param redeemTokens The number of tokens to hypothetically redeem
      * @param borrowAmount The amount of underlying to hypothetically borrow
      * @dev Note that we calculate the exchangeRateStored for each collateral cToken using stored data,
@@ -721,6 +722,8 @@ contract Comptroller is ComptrollerV7Storage, ComptrollerInterface, ComptrollerE
      *          hypothetical account shortfall below collateral requirements)
      */
     function getHypotheticalAccountLiquidityInternal(
+        // 赎回和借贷都是从市场里拿出来underlying token
+
         address account,
         CToken cTokenModify,
         uint redeemTokens,
@@ -736,6 +739,8 @@ contract Comptroller is ComptrollerV7Storage, ComptrollerInterface, ComptrollerE
 
             // Read the balances and exchange rate from the cToken
             (oErr, vars.cTokenBalance, vars.borrowBalance, vars.exchangeRateMantissa) = asset.getAccountSnapshot(account);
+            // 获得账户
+
             if (oErr != 0) { // semi-opaque error code, we assume NO_ERROR == 0 is invariant between upgrades
                 return (Error.SNAPSHOT_ERROR, 0, 0);
             }

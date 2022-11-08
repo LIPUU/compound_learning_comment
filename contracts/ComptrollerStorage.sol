@@ -52,6 +52,7 @@ contract ComptrollerV1Storage is UnitrollerAdminStorage {
      * @notice Per-account mapping of "assets you are in", capped by maxAssets
      */
     mapping(address => CToken[]) public accountAssets;
+    // 记录用户已经参与其中的借贷市场的列表
 
 }
 
@@ -77,6 +78,7 @@ contract ComptrollerV2Storage is ComptrollerV1Storage {
      * @dev Used e.g. to determine if a market is supported
      */
     mapping(address => Market) public markets;
+    // 一个cToken就是一个market，Market结构体里列出了相应的market的一些属性
 
 
     /**
