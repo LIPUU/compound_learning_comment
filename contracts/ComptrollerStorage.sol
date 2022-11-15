@@ -78,7 +78,7 @@ contract ComptrollerV2Storage is ComptrollerV1Storage {
      * @dev Used e.g. to determine if a market is supported
      */
     mapping(address => Market) public markets;
-    // 一个cToken就是一个market，Market结构体里列出了相应的market的一些属性
+    // cToken => Market结构体
 
 
     /**
@@ -99,6 +99,7 @@ contract ComptrollerV3Storage is ComptrollerV2Storage {
     struct CompMarketState {
         // The market's last updated compBorrowIndex or compSupplyIndex
         uint224 index;
+        // borrow方和supply方都各自有一个CompMarketState结构体，并用index变量存指数
 
         // The block number the index was last updated at
         uint32 block;
