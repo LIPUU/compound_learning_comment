@@ -1300,6 +1300,10 @@ contract Comptroller is ComptrollerV7Storage, ComptrollerInterface, ComptrollerE
         CompMarketState storage supplyState = compSupplyState[cToken];
         uint supplyIndex = supplyState.index;
         // supplyIndex的值刚刚在updateCompSupplyIndex函数里更新过
+        // 注意，distributeSupplierComp调用前一个紧挨着的调用一定是updateCompSupplyIndex
+        // 而updateCompSupplyIndex会修改supplyState.index为supplyIndex
+        // 而updateCompBorrowIndex同理，前面紧挨着的updateCompBorrowIndex会把supplyState.index修改为borrowIndex
+        // 因此，compSupplyState变量能够用一个index存两种类型的变量
 
         uint supplierIndex = compSupplierIndex[cToken][supplier];
         // 实际上，此处的supplierIndex就是上次的supplyIndex ↓。也就是说supplyIndex是旧值，supplierIndex是新值
