@@ -116,12 +116,19 @@ contract ComptrollerV3Storage is ComptrollerV2Storage {
 
     /// @notice The COMP market supply state for each market
     mapping(address => CompMarketState) public compSupplyState;
+    // 这个东西记录的是各个市场相关的COMP情况
+    // 具体情况就是，每个区块里，每 wei cToken对应的COMP奖励的数量
+    // 各个区块的奖励数量加起来，就是CompMarketState中的指数index。
 
     /// @notice The COMP market borrow state for each market
     mapping(address => CompMarketState) public compBorrowState;
+    // 这个视角，是记录在市场下的
 
     /// @notice The COMP borrow index for each market for each supplier as of the last time they accrued COMP
     mapping(address => mapping(address => uint)) public compSupplierIndex;
+    // 因为要对某个市场的某个supplier进行COMP奖励发放数量计算，因此有必要把当前COMP的借贷利率指数borrow index和某个市场里的某个用户挂钩
+    // compound选择把这个记录在comptroller里。市场=>supplier=>supplier操作时的borrow index
+    // 说是借贷利率指数，其实是记录的上次supplyIndex
 
     /// @notice The COMP borrow index for each market for each borrower as of the last time they accrued COMP
     mapping(address => mapping(address => uint)) public compBorrowerIndex;

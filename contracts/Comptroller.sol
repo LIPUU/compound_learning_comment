@@ -1238,19 +1238,23 @@ contract Comptroller is ComptrollerV7Storage, ComptrollerInterface, ComptrollerE
         CompMarketState storage supplyState = compSupplyState[cToken];
         uint supplySpeed = compSupplySpeeds[cToken];
         // COMP代币分配到对应cToken市场的速度，分给流动性提供者，即存款者，supply(是cToken持有者吗 那万一他还有借贷呢 吃两份COMP吗)
-        // 这个速度，就是每个区块产生的新COMP的数量
+        // 这个速度，就是每个区块该市场获得COMP的数量
 
         uint32 blockNumber = safe32(getBlockNumber(), "block number exceeds 32 bits");
         uint deltaBlocks = sub_(uint(blockNumber), uint(supplyState.block));
         // 距离上次更新compBorrowIndex 或 compSupplyIndex的区块间隔个数
 
         if (deltaBlocks > 0 && supplySpeed > 0) { 
-        // supplySpeed大于0，说明comptroller允许这个cToken市场给流动性提供性，即给存款者发放COMP代币
+        // supplySpeed大于0，说明comptroller允许这个cToken市场给流动性提供性者即给存款者发放COMP代币
             uint supplyTokens = CToken(cToken).totalSupply();
-            uint compAccrued = mul_(deltaBlocks, supplySpeed);
-            // 把中间区块产生的COMP数量计算出来
+            // 所有发行出来的cToken都意味着有人存了相应的underlying token进了市场
 
-            // ratio = compAccrued / supplyTokens 就是每wei supplyTokens能够拿到的奖励COMP的数量
+            uint compAccrued = mul_(deltaBlocks, supplySpeed);
+            // 把中间区块里本市场应该获得的COMP数量计算出来
+
+            // ratio = compAccrued / supplyTokens 就是每wei cToken能够拿到的COMP奖励的数量
+            // 而compAccrued中因为有deltaBlocks，因此所有区块都会被考虑进去
+            // 所谓的supplyIndex就是每个区块的ratio都累加起来，ratio1+ratio2+ratio3...，的累加和
             Double memory ratio = supplyTokens > 0 ? fraction(compAccrued, supplyTokens) : Double({mantissa: 0});
             supplyState.index = safe224(add_(Double({mantissa: supplyState.index}), ratio).mantissa, "new index exceeds 224 bits");
             // supplyState.index就是supplyIndex
@@ -1295,10 +1299,18 @@ contract Comptroller is ComptrollerV7Storage, ComptrollerInterface, ComptrollerE
 
         CompMarketState storage supplyState = compSupplyState[cToken];
         uint supplyIndex = supplyState.index;
+        // supplyIndex的值刚刚在updateCompSupplyIndex函数里更新过
+
         uint supplierIndex = compSupplierIndex[cToken][supplier];
+        // 实际上，此处的supplierIndex就是上次的supplyIndex ↓。也就是说supplyIndex是旧值，supplierIndex是新值
 
         // Update supplier's index to the current index since we are distributing accrued COMP
         compSupplierIndex[cToken][supplier] = supplyIndex;
+        // 将某个市场下的某个用户下记录的COMP的supplyIndex更新为最新
+        // 供应指数可以认为每持有1wei的cToken，对应的COMP奖励的数量
+        // supplyIndex与：外部设定的supplySpeed，cToken的totalsupply，以及deltaBlocks有关
+        // 由于supplyIndex的计算过程有deltaBlocks参与，实际上supplyIndex - supplierIndex包含了所有中间区块的信息
+        // 两者相减，就能得到中间区块的信息。和借贷利率指数的原理完全一样，只不过借贷利率指数是相除。
 
         if (supplierIndex == 0 && supplyIndex >= compInitialIndex) {
             // Covers the case where users supplied tokens before the market's supply state index was set.
@@ -1314,9 +1326,23 @@ contract Comptroller is ComptrollerV7Storage, ComptrollerInterface, ComptrollerE
 
         // Calculate COMP accrued: cTokenAmount * accruedPerCToken
         uint supplierDelta = mul_(supplierTokens, deltaIndex);
+        // 只要用户的操作引起了资金量的变化，就必然会执行到这里，两次资金量变化之间的时间里，资金量是不变的，因此可以放心地
+        // 乘以deltaIndex。得到的supplierDelta就是中间资金量不变的时间里，用户获取的奖励数量
+
+        // 怎么防止闪电贷？
+        // 基本上，updateCompSupplyIndex和distributeSupplierComp 这两个函数是连续调用的
+        // 且一定是在 xxxAllowed中调用的
+        // 而 xxxAllowed 是在某种资产操作的时候调用的，并且调用的时机在资产实际发生变化之前，即doTransferIn 或Out之前
+        // 因此如果用闪电贷放大资金量的话，放大的资金量并不会被记录下来
+        // 因为某次updateCompSupplyIndex+distributeSupplierComp调用检查的是上次的资金量，而上次的闪电贷会随着上次交易的结束被revert掉
+        // 又由于整个 xxxAllowed 调用链做了严格的重入保护，因此无论如何都不能通过闪电贷来放大资金量以获得非法COMP收入
 
         uint supplierAccrued = add_(compAccrued[supplier], supplierDelta);
+        // 将这个奖励数量累加到历史奖励里
+
         compAccrued[supplier] = supplierAccrued;
+        // 这里只是做了记录，实际上没有分配
+        // 
 
         emit DistributedSupplierComp(CToken(cToken), supplier, supplierDelta, supplyIndex);
     }
