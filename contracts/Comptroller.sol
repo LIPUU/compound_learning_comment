@@ -221,6 +221,11 @@ contract Comptroller is ComptrollerV7Storage, ComptrollerInterface, ComptrollerE
 
         return uint(Error.NO_ERROR);
     }
+    // 双向删除
+    // accountAssets是用户address下存的cToken assets，
+    // markets是cToken记录的进入该市场的用户address
+    // 两边都要删除
+    // 退出市场的前提是已经进入了该市场，并且退出之后不会引起清算
 
     /*** Policy Hooks ***/
 
