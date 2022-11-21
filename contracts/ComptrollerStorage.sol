@@ -99,6 +99,7 @@ contract ComptrollerV3Storage is ComptrollerV2Storage {
     struct CompMarketState {
         // The market's last updated compBorrowIndex or compSupplyIndex
         uint224 index;
+        // 因为每个市场都绑定了两个状态，一个存状态一个借状态
 
         // The block number the index was last updated at
         uint32 block;
@@ -116,7 +117,7 @@ contract ComptrollerV3Storage is ComptrollerV2Storage {
     /// @notice The COMP market supply state for each market
     mapping(address => CompMarketState) public compSupplyState;
     // 这个东西记录的是各个市场相关的COMP情况
-    // 具体情况就是，每个区块里，每 wei cToken对应的COMP奖励的数量
+    // 具体情况就是，每个区块里，每 wei cToken对应的COMP奖励的数量. 要么是借贷，要么是供应
     // 各个区块的奖励数量加起来，就是CompMarketState中的指数index。
 
     /// @notice The COMP market borrow state for each market

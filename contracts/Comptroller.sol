@@ -4,7 +4,7 @@ pragma solidity ^0.8.10;
 import "./CToken.sol";
 import "./ErrorReporter.sol";
 import "./PriceOracle.sol";
-import "./ComptrollerInterface.sol";
+import "./Comptroller"#f8ba1e".sol";
 import "./ComptrollerStorage.sol";
 import "./Unitroller.sol";
 import "./Governance/Comp.sol";
@@ -1244,7 +1244,7 @@ contract Comptroller is ComptrollerV7Storage, ComptrollerInterface, ComptrollerE
         uint deltaBlocks = sub_(uint(blockNumber), uint(supplyState.block));
         // 距离上次更新compBorrowIndex 或 compSupplyIndex的区块间隔个数
 
-        if (deltaBlocks > 0 && supplySpeed > 0) { 
+        if (deltaBlocks > 0 && supplySpeed > 0) {
         // supplySpeed大于0，说明comptroller允许这个cToken市场给流动性提供性者即给存款者发放COMP代币
             uint supplyTokens = CToken(cToken).totalSupply();
             // 所有发行出来的cToken都意味着有人存了相应的underlying token进了市场
@@ -1257,7 +1257,7 @@ contract Comptroller is ComptrollerV7Storage, ComptrollerInterface, ComptrollerE
             // 所谓的supplyIndex就是每个区块的ratio都累加起来，ratio1+ratio2+ratio3...，的累加和
             Double memory ratio = supplyTokens > 0 ? fraction(compAccrued, supplyTokens) : Double({mantissa: 0});
             supplyState.index = safe224(add_(Double({mantissa: supplyState.index}), ratio).mantissa, "new index exceeds 224 bits");
-            // supplyState.index就是supplyIndex
+            // 将supplyState.index置为supplyIndex
             // 因此上面这行代码本质就是 newSupplyIndex = oldSupplyIndex + ratio
 
             supplyState.block = blockNumber;
@@ -1278,9 +1278,15 @@ contract Comptroller is ComptrollerV7Storage, ComptrollerInterface, ComptrollerE
         uint deltaBlocks = sub_(uint(blockNumber), uint(borrowState.block));
         if (deltaBlocks > 0 && borrowSpeed > 0) {
             uint borrowAmount = div_(CToken(cToken).totalBorrows(), marketBorrowIndex);
+            // 当前所有人实际的借款总量(去除了利息)
+
             uint compAccrued = mul_(deltaBlocks, borrowSpeed);
             Double memory ratio = borrowAmount > 0 ? fraction(compAccrued, borrowAmount) : Double({mantissa: 0});
+            // 每wei借款量对应的COMP奖励数
+
             borrowState.index = safe224(add_(Double({mantissa: borrowState.index}), ratio).mantissa, "new index exceeds 224 bits");
+            // 累计历史上所有的ratio。类似于borrowIndex
+
             borrowState.block = blockNumber;
         } else if (deltaBlocks > 0) {
             borrowState.block = blockNumber;
@@ -1302,11 +1308,12 @@ contract Comptroller is ComptrollerV7Storage, ComptrollerInterface, ComptrollerE
         // supplyIndex的值刚刚在updateCompSupplyIndex函数里更新过
         // 注意，distributeSupplierComp调用前一个紧挨着的调用一定是updateCompSupplyIndex
         // 而updateCompSupplyIndex会修改supplyState.index为supplyIndex
-        // 而updateCompBorrowIndex同理，前面紧挨着的updateCompBorrowIndex会把supplyState.index修改为borrowIndex
+        // 而updateCompBorrowIndex同理，前面紧挨着的updateCompBorrowIndex的调用会把supplyState.index修改为borrowIndex
         // 因此，compSupplyState变量能够用一个index存两种类型的变量
 
         uint supplierIndex = compSupplierIndex[cToken][supplier];
-        // 实际上，此处的supplierIndex就是上次的supplyIndex ↓。也就是说supplyIndex是旧值，supplierIndex是新值
+        // 实际上，此处的supplierIndex就是上次的supplyIndex ↓。也就是说supplyIndex是新值，supplierIndex是旧值
+        // 旧值从逻辑上记录在用户address下，即supplier。新值从逻辑上记录在市场address下，compSupplyState
 
         // Update supplier's index to the current index since we are distributing accrued COMP
         compSupplierIndex[cToken][supplier] = supplyIndex;
@@ -1330,16 +1337,10 @@ contract Comptroller is ComptrollerV7Storage, ComptrollerInterface, ComptrollerE
 
         // Calculate COMP accrued: cTokenAmount * accruedPerCToken
         uint supplierDelta = mul_(supplierTokens, deltaIndex);
-        // 只要用户的操作引起了资金量的变化，就必然会执行到这里，两次资金量变化之间的时间里，资金量是不变的，因此可以放心地
-        // 乘以deltaIndex。得到的supplierDelta就是中间资金量不变的时间里，用户获取的奖励数量
-
-        // 怎么防止闪电贷？
-        // 基本上，updateCompSupplyIndex和distributeSupplierComp 这两个函数是连续调用的
-        // 且一定是在 xxxAllowed中调用的
-        // 而 xxxAllowed 是在某种资产操作的时候调用的，并且调用的时机在资产实际发生变化之前，即doTransferIn 或Out之前
-        // 因此如果用闪电贷放大资金量的话，放大的资金量并不会被记录下来
-        // 因为某次updateCompSupplyIndex+distributeSupplierComp调用检查的是上次的资金量，而上次的闪电贷会随着上次交易的结束被revert掉
-        // 又由于整个 xxxAllowed 调用链做了严格的重入保护，因此无论如何都不能通过闪电贷来放大资金量以获得非法COMP收入
+        // 只要用户的操作引起了资金量的变化，比如用户进行了存款mint，就必然会执行到这里，因为keep wheel fly
+        // 两次资金量变化之间的时间里，资金量是不变的，因此可以放心地乘以deltaIndex
+        // 得到的supplierDelta就是中间资金量不变的时间里，用户获取的奖励数量
+        
 
         uint supplierAccrued = add_(compAccrued[supplier], supplierDelta);
         // 将这个奖励数量累加到历史奖励里
@@ -1365,6 +1366,7 @@ contract Comptroller is ComptrollerV7Storage, ComptrollerInterface, ComptrollerE
         CompMarketState storage borrowState = compBorrowState[cToken];
         uint borrowIndex = borrowState.index;
         uint borrowerIndex = compBorrowerIndex[cToken][borrower];
+        // 用户记录的自己上次的borrowIndex。上次之前的所有奖励用户已经吃过了
 
         // Update borrowers's index to the current index since we are distributing accrued COMP
         compBorrowerIndex[cToken][borrower] = borrowIndex;
@@ -1378,11 +1380,14 @@ contract Comptroller is ComptrollerV7Storage, ComptrollerInterface, ComptrollerE
 
         // Calculate change in the cumulative sum of the COMP per borrowed unit accrued
         Double memory deltaIndex = Double({mantissa: sub_(borrowIndex, borrowerIndex)});
+        // 得到中间没吃的
 
         uint borrowerAmount = div_(CToken(cToken).borrowBalanceStored(borrower), marketBorrowIndex);
+        // 得到用户真正的借款量
 
         // Calculate COMP accrued: cTokenAmount * accruedPerBorrowedUnit
         uint borrowerDelta = mul_(borrowerAmount, deltaIndex);
+        // 这样算的话，只要有借款，就能源源不断每区块吃COMP奖励
 
         uint borrowerAccrued = add_(compAccrued[borrower], borrowerDelta);
         compAccrued[borrower] = borrowerAccrued;
@@ -1439,6 +1444,12 @@ contract Comptroller is ComptrollerV7Storage, ComptrollerInterface, ComptrollerE
             require(markets[address(cToken)].isListed, "market must be listed");
             if (borrowers == true) {
                 Exp memory borrowIndex = Exp({mantissa: cToken.borrowIndex()});
+                // 这里拿到的borrowIndex可能不是最新的
+                // 不是最新的意思是，最后一次有关cToken资产的操作完成之后，一直到这次claimComp调用
+                // 中间的应计利息没有计算
+                // 如果是这样，CToken(cToken).totalBorrows拿到的借贷总数也是未更新的，并且和borrowIndex旧的程度是一样的
+                // 因为任何资产的操作都会调用accrueInterest使得borrowIndex和totalBorrows同时被更新
+
                 updateCompBorrowIndex(address(cToken), borrowIndex);
                 for (uint j = 0; j < holders.length; j++) {
                     distributeBorrowerComp(address(cToken), holders[j], borrowIndex);

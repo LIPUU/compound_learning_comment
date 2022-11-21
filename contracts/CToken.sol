@@ -483,6 +483,8 @@ abstract contract CToken is CTokenInterface, ExponentialNoError, TokenErrorRepor
          * And write them into storage
          */
         totalSupply = totalSupply + mintTokens;
+        // 发行了新的cToken
+
         accountTokens[minter] = accountTokens[minter] + mintTokens;
 
         /* We emit a Mint event, and a Transfer event */
@@ -637,8 +639,9 @@ abstract contract CToken is CTokenInterface, ExponentialNoError, TokenErrorRepor
          *  totalBorrowsNew = totalBorrows + borrowAmount
          */
         uint accountBorrowsPrev = borrowBalanceStoredInternal(borrower);
-        uint accountBorrowsNew = accountBorrowsPrev + borrowAmount;
+        uint accountBorrowsNew = accountBorrowsPrev + borrowAmount; // 上次总借款+上次总借款产生的应计利息
         uint totalBorrowsNew = totalBorrows + borrowAmount;
+        // 此时totalBorrows里已经包含了上个区块产生的利息了
 
         /////////////////////////
         // EFFECTS & INTERACTIONS
