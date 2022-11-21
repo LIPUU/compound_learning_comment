@@ -4,7 +4,7 @@ pragma solidity ^0.8.10;
 import "./CToken.sol";
 import "./ErrorReporter.sol";
 import "./PriceOracle.sol";
-import "./Comptroller"#f8ba1e".sol";
+import "./ComptrollerInterface.sol";
 import "./ComptrollerStorage.sol";
 import "./Unitroller.sol";
 import "./Governance/Comp.sol";
