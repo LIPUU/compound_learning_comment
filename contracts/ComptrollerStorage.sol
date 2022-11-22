@@ -26,7 +26,11 @@ contract UnitrollerAdminStorage {
     address public pendingComptrollerImplementation;
 }
 
-contract ComptrollerV1Storage is UnitrollerAdminStorage {
+contract ComptrollerV1Storage is UnitrollerAdminStorage { 
+    // Unitroller合约是代理合约，而comptroller合约是被代理合约
+    // 为了防止代理合约与被代理合约之间发生插槽冲突，要保证代理合约所有的插槽都出现在被代理合约的头部
+    // 因此这里 ComptrollerV1Storage 先继承 UnitrollerAdminStorage
+    // 接下来每次为合约添加新功能直接新建新版本的storage合约并继续往下继承
 
     /**
      * @notice Oracle which gives the price of any given asset

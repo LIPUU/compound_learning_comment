@@ -9,6 +9,8 @@ import "./ComptrollerStorage.sol";
  * CTokens should reference this contract as their comptroller.
  */
 contract Unitroller is UnitrollerAdminStorage, ComptrollerErrorReporter {
+  // 对合约的继承是由近至远的
+  // 因此本合约的布局首先是UnitrollerAdminStorage的布局
 
     /**
       * @notice Emitted when pendingComptrollerImplementation is changed
