@@ -142,7 +142,8 @@ contract ExponentialNoError {
     }
 
     function div_(Exp memory a, uint b) pure internal returns (Exp memory) {
-        return Exp({mantissa: div_(a.mantissa, b)});
+        return Exp({mantissa: div_(a.mantissa, b)}); 
+        // 之所以允许两个uint直接相除，原因是a.mantissa的精度就是经过放大过的，符合先乘后除的模式
     }
 
     function div_(uint a, Exp memory b) pure internal returns (uint) {
