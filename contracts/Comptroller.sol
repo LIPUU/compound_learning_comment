@@ -488,7 +488,7 @@ contract Comptroller is ComptrollerV7Storage, ComptrollerInterface, ComptrollerE
 
         if (!markets[cTokenBorrowed].isListed || !markets[cTokenCollateral].isListed) {
             return uint(Error.MARKET_NOT_LISTED);
-        } 
+        }
         // 在comptroller中检查，如果这种资产不能被借贷或者不能被抵押，那么调用comptroller的这个合约就从未上过compound
 
         uint borrowBalance = CToken(cTokenBorrowed).borrowBalanceStored(borrower);
